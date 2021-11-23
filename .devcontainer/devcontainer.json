@@ -2,9 +2,10 @@
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.205.2/containers/ubuntu
 {
   "name": "Ubuntu",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "image": "docker.io/ionaryu/xenial",
+  // "build": {
+  //   "dockerfile": "Dockerfile"
+  // },
 
   // Set *default* container specific settings.json values on container create.
   "settings": {},
