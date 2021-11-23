@@ -1,0 +1,420 @@
+// Copyright (c) 2011-2018 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#include <test/data/key_io_invalid.json.h>
+#include <test/data/key_io_valid.json.h>
+
+#include <key.h>
+#include <key_io.h>
+#include <script/script.h>
+#include <util/strencodings.h>
+#include <test/test_bitcoin.h>
+
+#include <boost/test/unit_test.hpp>
+#include <univalue.h>
+#include <bech32.h>
+#include <base58.h>
+#include <boost/format.hpp>
+#include <boost/algorithm/hex.hpp>
+#include <sstream>
+#include <iomanip>
+
+extern UniValue read_json(const std::string& jsondata);
+
+typedef std::vector<uint8_t> data;
+const char* CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+/** The Bech32 character set for decoding. */
+const int8_t CHARSET_REV[128] = {
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    15, -1, 10, 17, 21, 20, 26, 30,  7,  5, -1, -1, -1, -1, -1, -1,
+    -1, 29, -1, 24, 13, 25,  9,  8, 23, -1, 18, 22, 31, 27, 19, -1,
+     1,  0,  3, 16, 11, 28, 12, 14,  6,  4,  2, -1, -1, -1, -1, -1,
+    -1, 29, -1, 24, 13, 25,  9,  8, 23, -1, 18, 22, 31, 27, 19, -1,
+     1,  0,  3, 16, 11, 28, 12, 14,  6,  4,  2, -1, -1, -1, -1, -1
+};
+
+/** Concatenate two byte arrays. */
+static data Cat(data x, const data& y)
+{
+    x.insert(x.end(), y.begin(), y.end());
+    return x;
+}
+
+/** This function will compute what 6 5-bit values to XOR into the last 6 input values, in order to
+ *  make the checksum 0. These 6 values are packed together in a single 30-bit integer. The higher
+ *  bits correspond to earlier values. */
+static uint32_t PolyMod(const data& v)
+{
+    // The input is interpreted as a list of coefficients of a polynomial over F = GF(32), with an
+    // implicit 1 in front. If the input is [v0,v1,v2,v3,v4], that polynomial is v(x) =
+    // 1*x^5 + v0*x^4 + v1*x^3 + v2*x^2 + v3*x + v4. The implicit 1 guarantees that
+    // [v0,v1,v2,...] has a distinct checksum from [0,v0,v1,v2,...].
+
+    // The output is a 30-bit integer whose 5-bit groups are the coefficients of the remainder of
+    // v(x) mod g(x), where g(x) is the Bech32 generator,
+    // x^6 + {29}x^5 + {22}x^4 + {20}x^3 + {21}x^2 + {29}x + {18}. g(x) is chosen in such a way
+    // that the resulting code is a BCH code, guaranteeing detection of up to 3 errors within a
+    // window of 1023 characters. Among the various possible BCH codes, one was selected to in
+    // fact guarantee detection of up to 4 errors within a window of 89 characters.
+
+    // Note that the coefficients are elements of GF(32), here represented as decimal numbers
+    // between {}. In this finite field, addition is just XOR of the corresponding numbers. For
+    // example, {27} + {13} = {27 ^ 13} = {22}. Multiplication is more complicated, and requires
+    // treating the bits of values themselves as coefficients of a polynomial over a smaller field,
+    // GF(2), and multiplying those polynomials mod a^5 + a^3 + 1. For example, {5} * {26} =
+    // (a^2 + 1) * (a^4 + a^3 + a) = (a^4 + a^3 + a) * a^2 + (a^4 + a^3 + a) = a^6 + a^5 + a^4 + a
+    // = a^3 + 1 (mod a^5 + a^3 + 1) = {9}.
+
+    // During the course of the loop below, `c` contains the bitpacked coefficients of the
+    // polynomial constructed from just the values of v that were processed so far, mod g(x). In
+    // the above example, `c` initially corresponds to 1 mod (x), and after processing 2 inputs of
+    // v, it corresponds to x^2 + v0*x + v1 mod g(x). As 1 mod g(x) = 1, that is the starting value
+    // for `c`.
+    uint32_t c = 1;
+    for (const auto v_i : v) {
+        // We want to update `c` to correspond to a polynomial with one extra term. If the initial
+        // value of `c` consists of the coefficients of c(x) = f(x) mod g(x), we modify it to
+        // correspond to c'(x) = (f(x) * x + v_i) mod g(x), where v_i is the next input to
+        // process. Simplifying:
+        // c'(x) = (f(x) * x + v_i) mod g(x)
+        //         ((f(x) mod g(x)) * x + v_i) mod g(x)
+        //         (c(x) * x + v_i) mod g(x)
+        // If c(x) = c0*x^5 + c1*x^4 + c2*x^3 + c3*x^2 + c4*x + c5, we want to compute
+        // c'(x) = (c0*x^5 + c1*x^4 + c2*x^3 + c3*x^2 + c4*x + c5) * x + v_i mod g(x)
+        //       = c0*x^6 + c1*x^5 + c2*x^4 + c3*x^3 + c4*x^2 + c5*x + v_i mod g(x)
+        //       = c0*(x^6 mod g(x)) + c1*x^5 + c2*x^4 + c3*x^3 + c4*x^2 + c5*x + v_i
+        // If we call (x^6 mod g(x)) = k(x), this can be written as
+        // c'(x) = (c1*x^5 + c2*x^4 + c3*x^3 + c4*x^2 + c5*x + v_i) + c0*k(x)
+
+        // First, determine the value of c0:
+        uint8_t c0 = c >> 25;
+
+        // Then compute c1*x^5 + c2*x^4 + c3*x^3 + c4*x^2 + c5*x + v_i:
+        c = ((c & 0x1ffffff) << 5) ^ v_i;
+
+        // Finally, for each set bit n in c0, conditionally add {2^n}k(x):
+        if (c0 & 1)  c ^= 0x3b6a57b2; //     k(x) = {29}x^5 + {22}x^4 + {20}x^3 + {21}x^2 + {29}x + {18}
+        if (c0 & 2)  c ^= 0x26508e6d; //  {2}k(x) = {19}x^5 +  {5}x^4 +     x^3 +  {3}x^2 + {19}x + {13}
+        if (c0 & 4)  c ^= 0x1ea119fa; //  {4}k(x) = {15}x^5 + {10}x^4 +  {2}x^3 +  {6}x^2 + {15}x + {26}
+        if (c0 & 8)  c ^= 0x3d4233dd; //  {8}k(x) = {30}x^5 + {20}x^4 +  {4}x^3 + {12}x^2 + {30}x + {29}
+        if (c0 & 16) c ^= 0x2a1462b3; // {16}k(x) = {21}x^5 +     x^4 +  {8}x^3 + {24}x^2 + {21}x + {19}
+    }
+    return c;
+}
+
+/** Convert to lower case. */
+inline unsigned char LowerCase(unsigned char c)
+{
+    return (c >= 'A' && c <= 'Z') ? (c - 'A') + 'a' : c;
+}
+
+/** Expand a HRP for use in checksum computation. */
+static data ExpandHRP(const std::string& hrp)
+{
+    data ret;
+    ret.reserve(hrp.size() + 90);
+    ret.resize(hrp.size() * 2 + 1);
+    for (size_t i = 0; i < hrp.size(); ++i) {
+        unsigned char c = hrp[i];
+        ret[i] = c >> 5;
+        ret[i + hrp.size() + 1] = c & 0x1f;
+    }
+    ret[hrp.size()] = 0;
+    return ret;
+}
+
+static data CreateChecksum(const std::string& hrp, const data& values)
+{
+    data enc = Cat(ExpandHRP(hrp), values);
+    enc.resize(enc.size() + 6); // Append 6 zeroes
+    uint32_t mod = PolyMod(enc) ^ 1; // Determine what to XOR into those 6 zeroes.
+    data ret(6);
+    for (size_t i = 0; i < 6; ++i) {
+        // Convert the 5-bit groups in mod to checksum values.
+        ret[i] = (mod >> (5 * (5 - i))) & 31;
+    }
+    return ret;
+}
+
+static bool VerifyChecksum(const std::string& hrp, const data& values)
+{
+    // PolyMod computes what value to xor into the final values to make the checksum 0. However,
+    // if we required that the checksum was 0, it would be the case that appending a 0 to a valid
+    // list of values would result in a new valid list. For that reason, Bech32 requires the
+    // resulting checksum to be 1 instead.
+    return PolyMod(Cat(ExpandHRP(hrp), values)) == 1;
+}
+
+/** Decode a Bech32 string. */
+static std::pair<std::string, data> DecodeForLog(const std::string& str) {
+    bool lower = false, upper = false;
+    for (size_t i = 0; i < str.size(); ++i) {
+        unsigned char c = str[i];
+        if (c >= 'a' && c <= 'z') lower = true;
+        else if (c >= 'A' && c <= 'Z') upper = true;
+        else if (c < 33 || c > 126) return {};
+    }
+    if (lower && upper) {
+        BOOST_TEST_MESSAGE("decode fail:lower && upper");
+        return {};
+    }
+    size_t pos = str.rfind('1');
+    if (str.size() > 90 || pos == str.npos || pos == 0 || pos + 7 > str.size()) {
+        BOOST_TEST_MESSAGE("decode fail:str.size() > 90 || pos == str.npos || pos == 0 || pos + 7 > str.size()");
+        return {};
+    }
+    data values(str.size() - 1 - pos);
+    for (size_t i = 0; i < str.size() - 1 - pos; ++i) {
+        unsigned char c = str[i + pos + 1];
+        int8_t rev = CHARSET_REV[c];
+
+        if (rev == -1) {
+            BOOST_TEST_MESSAGE("decode fail:rev == -1");
+            return {};
+        }
+        values[i] = rev;
+    }
+    std::string hrp;
+    for (size_t i = 0; i < pos; ++i) {
+        hrp += LowerCase(str[i]);
+    }
+    // if (!VerifyChecksum(hrp, values)) {
+    //     BOOST_TEST_MESSAGE(boost::io::str(boost::format("decode fail(VerifyChecksum):%1%, %2%") % hrp % HexStr(data(values.begin(), values.end() - 6))));
+    //     return {};
+    // }
+    BOOST_TEST_MESSAGE(boost::io::str(boost::format("decode OK:%1%, %2%") % hrp % HexStr(data(values.begin(), values.end() - 6))));
+    return {hrp, data(values.begin(), values.end() - 6)};
+}
+
+static CTxDestination DecodeDestination2(const std::string& str, const CChainParams& params)
+{
+    std::vector<unsigned char> data;
+    uint160 hash;
+    if (DecodeBase58Check(str, data)) {
+        // base58-encoded Bitcoin addresses.
+        // Public-key-hash-addresses have version 0 (or 111 testnet).
+        // The data vector contains RIPEMD160(SHA256(pubkey)), where pubkey is the serialized public key.
+        const std::vector<unsigned char>& pubkey_prefix = params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
+        if (data.size() == hash.size() + pubkey_prefix.size() && std::equal(pubkey_prefix.begin(), pubkey_prefix.end(), data.begin())) {
+            std::copy(data.begin() + pubkey_prefix.size(), data.end(), hash.begin());
+            return CKeyID(hash);
+        }
+        // Script-hash-addresses have version 5 for 3 prefix (or 196 testnet).
+        // The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
+        const std::vector<unsigned char>& script_prefix = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+        if (data.size() == hash.size() + script_prefix.size() && std::equal(script_prefix.begin(), script_prefix.end(), data.begin())) {
+            std::copy(data.begin() + script_prefix.size(), data.end(), hash.begin());
+            return CScriptID(hash);
+        }
+        // Script-hash-addresses have version 5 for M prefix (or 196 testnet).
+        // The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
+        const std::vector<unsigned char>& script_prefix2 = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS2);
+        if (data.size() == hash.size() + script_prefix2.size() && std::equal(script_prefix2.begin(), script_prefix2.end(), data.begin())) {
+            std::copy(data.begin() + script_prefix2.size(), data.end(), hash.begin());
+            return CScriptID(hash);
+        }        
+    }
+    data.clear();
+    auto bech = DecodeForLog(str);
+    if (bech.second.size() > 0 && bech.first == params.Bech32HRP()) {
+        // Bech32 decoding
+        int version = bech.second[0]; // The first 5 bit symbol is the witness version (0-16)
+        // The rest of the symbols are converted witness program bytes.
+        data.reserve(((bech.second.size() - 1) * 5) / 8);
+        if (ConvertBits<5, 8, false>([&](unsigned char c) { data.push_back(c); }, bech.second.begin() + 1, bech.second.end())) {
+            if (version == 0) {
+                {
+                    WitnessV0KeyHash keyid;
+                    if (data.size() == keyid.size()) {
+                        std::copy(data.begin(), data.end(), keyid.begin());
+                        return keyid;
+                    }
+                }
+                {
+                    WitnessV0ScriptHash scriptid;
+                    if (data.size() == scriptid.size()) {
+                        std::copy(data.begin(), data.end(), scriptid.begin());
+                        return scriptid;
+                    }
+                }
+                return CNoDestination();
+            }
+            if (version > 16 || data.size() < 2 || data.size() > 40) {
+                return CNoDestination();
+            }
+            WitnessUnknown unk;
+            unk.version = version;
+            std::copy(data.begin(), data.end(), unk.program);
+            unk.length = data.size();
+            return unk;
+        }
+    }
+    return CNoDestination();
+}
+
+static CTxDestination DecodeDestination2(const std::string& str)
+{
+    return DecodeDestination2(str, Params());
+}
+
+BOOST_FIXTURE_TEST_SUITE(key_io_tests, BasicTestingSetup)
+
+// Goal: check that parsed keys match test payload
+BOOST_AUTO_TEST_CASE(key_io_valid_parse)
+{
+    UniValue tests = read_json(std::string(json_tests::key_io_valid, json_tests::key_io_valid + sizeof(json_tests::key_io_valid)));
+    CKey privkey;
+    CTxDestination destination;
+    SelectParams(CBaseChainParams::MAIN);
+
+    for (unsigned int idx = 0; idx < tests.size(); idx++) {
+        UniValue test = tests[idx];
+        std::string strTest = test.write();
+        if (test.size() < 3) { // Allow for extra stuff (useful for comments)
+            BOOST_ERROR("Bad test: " << strTest);
+            continue;
+        }
+
+        BOOST_TEST_MESSAGE("****************************************************************************************************************************************");
+        std::string exp_base58string = test[0].get_str();
+        
+        std::vector<unsigned char> exp_payload = ParseHex(test[1].get_str());
+        BOOST_TEST_MESSAGE(boost::io::str(boost::format("bech32:%2%\nbase58:%1%\npayload:%3%\nbech32decode:%4%") % exp_base58string % Params().Bech32HRP() % HexStr(exp_payload) % DecodeForLog(exp_base58string).first));
+        // {
+        //     auto tmpdata = bech32::Decode(exp_base58string);
+        //     BOOST_TEST_MESSAGE(boost::io::str(boost::format("decoded: %1%, %2%") % tmpdata.first % HexStr(tmpdata.second)));
+        //     if(std::string::npos == tmpdata.first.find("jmc")) {
+        //         BOOST_TEST_MESSAGE("encoded: " + bech32::Encode(tmpdata.first, tmpdata.second));
+        //     } else {
+        //         std::string tmpstring = tmpdata.first;
+        //         tmpstring.replace(tmpdata.first.find("jmc"), 3, "jmc");
+        //         BOOST_TEST_MESSAGE("encoded: " + bech32::Encode(tmpstring, tmpdata.second));
+        //     }
+        // }
+        const UniValue &metadata = test[2].get_obj();
+        bool isPrivkey = find_value(metadata, "isPrivkey").get_bool();
+        SelectParams(find_value(metadata, "chain").get_str());
+        bool try_case_flip = find_value(metadata, "tryCaseFlip").isNull() ? false : find_value(metadata, "tryCaseFlip").get_bool();
+        BOOST_TEST_MESSAGE(boost::io::str(boost::format("isPrivKey:%1%\ntryCaseFlip:%2%") % isPrivkey % try_case_flip));
+        if (isPrivkey) {
+            bool isCompressed = find_value(metadata, "isCompressed").get_bool();
+            // Must be valid private key
+            privkey = DecodeSecret(exp_base58string);
+            BOOST_CHECK_MESSAGE(privkey.IsValid(), "!IsValid:" + strTest);
+            BOOST_CHECK_MESSAGE(privkey.IsCompressed() == isCompressed, "compressed mismatch:" + strTest);
+            BOOST_CHECK_MESSAGE(privkey.size() == exp_payload.size() && std::equal(privkey.begin(), privkey.end(), exp_payload.begin()), "key mismatch:" + strTest);
+
+            // Private key must be invalid public key
+            destination = DecodeDestination(exp_base58string);
+            BOOST_CHECK_MESSAGE(!IsValidDestination(destination), "IsValid privkey as pubkey:" + strTest);
+        } else {
+            // Must be valid public key
+            destination = DecodeDestination(exp_base58string);
+            CScript script = GetScriptForDestination(destination);
+
+            BOOST_TEST_MESSAGE(boost::io::str(boost::format("IsValidDestination:%1%\nwhich:%2%\nscript:%3%") % IsValidDestination(destination) % destination.which() % HexStr(script)));
+            
+            if(!IsValidDestination(destination)) {
+                auto tmpData = DecodeForLog(exp_base58string);
+                std::string hash = boost::algorithm::unhex(HexStr(tmpData.second)); 
+                std::vector<unsigned char> tmpbufferdata(hash.size());
+                std::copy(hash.begin(), hash.end(), tmpbufferdata.begin());
+                BOOST_TEST_MESSAGE("encoded test: " + bech32::Encode(tmpData.first, tmpbufferdata));
+            }
+
+            BOOST_CHECK_MESSAGE(IsValidDestination(destination), "!IsValid:" + strTest);
+            BOOST_CHECK_EQUAL(HexStr(script), HexStr(exp_payload));
+
+            // Try flipped case version
+            for (char& c : exp_base58string) {
+                if (c >= 'a' && c <= 'z') {
+                    c = (c - 'a') + 'A';
+                } else if (c >= 'A' && c <= 'Z') {
+                    c = (c - 'A') + 'a';
+                }
+            }
+            destination = DecodeDestination(exp_base58string);
+            BOOST_CHECK_MESSAGE(IsValidDestination(destination) == try_case_flip, "!IsValid case flipped:" + strTest);
+            if (IsValidDestination(destination)) {
+                script = GetScriptForDestination(destination);
+                BOOST_CHECK_EQUAL(HexStr(script), HexStr(exp_payload));
+            }
+
+            // Public key must be invalid private key
+            privkey = DecodeSecret(exp_base58string);
+            BOOST_CHECK_MESSAGE(!privkey.IsValid(), "IsValid pubkey as privkey:" + strTest);
+        }
+    }
+}
+
+// Goal: check that generated keys match test vectors
+BOOST_AUTO_TEST_CASE(key_io_valid_gen)
+{
+    UniValue tests = read_json(std::string(json_tests::key_io_valid, json_tests::key_io_valid + sizeof(json_tests::key_io_valid)));
+
+    for (unsigned int idx = 0; idx < tests.size(); idx++) {
+        UniValue test = tests[idx];
+        std::string strTest = test.write();
+        if (test.size() < 3) // Allow for extra stuff (useful for comments)
+        {
+            BOOST_ERROR("Bad test: " << strTest);
+            continue;
+        }
+        std::string exp_base58string = test[0].get_str();
+        std::vector<unsigned char> exp_payload = ParseHex(test[1].get_str());
+        const UniValue &metadata = test[2].get_obj();
+        bool isPrivkey = find_value(metadata, "isPrivkey").get_bool();
+        SelectParams(find_value(metadata, "chain").get_str());
+        if (isPrivkey) {
+            bool isCompressed = find_value(metadata, "isCompressed").get_bool();
+            CKey key;
+            key.Set(exp_payload.begin(), exp_payload.end(), isCompressed);
+            assert(key.IsValid());
+            BOOST_CHECK_MESSAGE(EncodeSecret(key) == exp_base58string, "result mismatch: " + strTest);
+        } else {
+            CTxDestination dest;
+            CScript exp_script(exp_payload.begin(), exp_payload.end());
+            BOOST_CHECK(ExtractDestination(exp_script, dest));
+            std::string address = EncodeDestination(dest);
+
+            BOOST_CHECK_EQUAL(address, exp_base58string);
+        }
+    }
+
+    SelectParams(CBaseChainParams::MAIN);
+}
+
+
+// Goal: check that base58 parsing code is robust against a variety of corrupted data
+BOOST_AUTO_TEST_CASE(key_io_invalid)
+{
+    UniValue tests = read_json(std::string(json_tests::key_io_invalid, json_tests::key_io_invalid + sizeof(json_tests::key_io_invalid))); // Negative testcases
+    CKey privkey;
+    CTxDestination destination;
+
+    for (unsigned int idx = 0; idx < tests.size(); idx++) {
+        UniValue test = tests[idx];
+        std::string strTest = test.write();
+        if (test.size() < 1) // Allow for extra stuff (useful for comments)
+        {
+            BOOST_ERROR("Bad test: " << strTest);
+            continue;
+        }
+        std::string exp_base58string = test[0].get_str();
+
+        // must be invalid as public and as private key
+        for (const auto& chain : { CBaseChainParams::MAIN, CBaseChainParams::TESTNET, CBaseChainParams::REGTEST }) {
+            SelectParams(chain);
+            destination = DecodeDestination(exp_base58string);
+            BOOST_CHECK_MESSAGE(!IsValidDestination(destination), "IsValid pubkey in mainnet:" + strTest);
+            privkey = DecodeSecret(exp_base58string);
+            BOOST_CHECK_MESSAGE(!privkey.IsValid(), "IsValid privkey in mainnet:" + strTest);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_SUITE_END()

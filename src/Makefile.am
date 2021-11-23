@@ -82,18 +82,18 @@ TESTS =
 BENCHMARKS =
 
 if BUILD_BITCOIND
-  bin_PROGRAMS += litecoind
+  bin_PROGRAMS += jamcoind
 endif
 
 if BUILD_BITCOIN_CLI
-  bin_PROGRAMS += litecoin-cli
+  bin_PROGRAMS += jamcoin-cli
 endif
 if BUILD_BITCOIN_TX
-  bin_PROGRAMS += litecoin-tx
+  bin_PROGRAMS += jamcoin-tx
 endif
 if ENABLE_WALLET
 if BUILD_BITCOIN_WALLET
-  bin_PROGRAMS += litecoin-wallet
+  bin_PROGRAMS += jamcoin-wallet
 endif
 endif
 
@@ -485,16 +485,16 @@ nodist_libbitcoin_util_a_SOURCES = $(srcdir)/obj/build.h
 #
 
 # bitcoind binary #
-litecoind_SOURCES = bitcoind.cpp
-litecoind_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-litecoind_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-litecoind_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+jamcoind_SOURCES = bitcoind.cpp
+jamcoind_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+jamcoind_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+jamcoind_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-litecoind_SOURCES += bitcoind-res.rc
+jamcoind_SOURCES += bitcoind-res.rc
 endif
 
-litecoind_LDADD = \
+jamcoind_LDADD = \
   $(LIBBITCOIN_SERVER) \
   $(LIBBITCOIN_WALLET) \
   $(LIBBITCOIN_SERVER) \
@@ -509,38 +509,38 @@ litecoind_LDADD = \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
 
-litecoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
+jamcoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
 # bitcoin-cli binary #
-litecoin_cli_SOURCES = bitcoin-cli.cpp
-litecoin_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
-litecoin_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-litecoin_cli_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+jamcoin_cli_SOURCES = bitcoin-cli.cpp
+jamcoin_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
+jamcoin_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+jamcoin_cli_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-litecoin_cli_SOURCES += bitcoin-cli-res.rc
+jamcoin_cli_SOURCES += bitcoin-cli-res.rc
 endif
 
-litecoin_cli_LDADD = \
+jamcoin_cli_LDADD = \
   $(LIBBITCOIN_CLI) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_CRYPTO)
 
-litecoin_cli_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
+jamcoin_cli_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
 #
 
 # bitcoin-tx binary #
-litecoin_tx_SOURCES = bitcoin-tx.cpp
-litecoin_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-litecoin_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-litecoin_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+jamcoin_tx_SOURCES = bitcoin-tx.cpp
+jamcoin_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+jamcoin_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+jamcoin_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-litecoin_tx_SOURCES += bitcoin-tx-res.rc
+jamcoin_tx_SOURCES += bitcoin-tx-res.rc
 endif
 
-litecoin_tx_LDADD = \
+jamcoin_tx_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_COMMON) \
   $(LIBBITCOIN_UTIL) \
@@ -548,20 +548,20 @@ litecoin_tx_LDADD = \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBSECP256K1)
 
-litecoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+jamcoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #
 
 # bitcoin-wallet binary #
-litecoin_wallet_SOURCES = bitcoin-wallet.cpp
-litecoin_wallet_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-litecoin_wallet_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-litecoin_wallet_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+jamcoin_wallet_SOURCES = bitcoin-wallet.cpp
+jamcoin_wallet_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+jamcoin_wallet_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+jamcoin_wallet_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-litecoin_wallet_SOURCES += bitcoin-wallet-res.rc
+jamcoin_wallet_SOURCES += bitcoin-wallet-res.rc
 endif
 
-litecoin_wallet_LDADD = \
+jamcoin_wallet_LDADD = \
   $(LIBBITCOIN_WALLET_TOOL) \
   $(LIBBITCOIN_WALLET) \
   $(LIBBITCOIN_SERVER) \
@@ -574,7 +574,7 @@ litecoin_wallet_LDADD = \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
 
-litecoin_wallet_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
+jamcoin_wallet_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
 #
 
 # bitcoinconsensus library #
