@@ -3,7 +3,7 @@ version: 2.1
 jobs:
   ubuntu-xenial-gcc:
     docker:
-      - image: docker.io/ionaryu/xenial
+      - image: docker.io/ionaryu/ubuntubuilder-xenial
     steps:
       - checkout
       - run: ./contrib/install_db4.sh `pwd`
@@ -13,7 +13,17 @@ jobs:
       - run: make check -j 4
   ubuntu-bionic-gcc:
     docker:
-      - image: docker.io/ionaryu/bionic
+      - image: docker.io/ionaryu/ubuntubuilder-bionic
+    steps:
+      - checkout
+      - run: ./contrib/install_db4.sh `pwd`
+      - run: ./autogen.sh
+      - run: export BDB_PREFIX=`pwd`'/db4' && ./configure BDB_LIBS="-L${BDB_PREFIX}/lib -ldb_cxx-4.8" BDB_CFLAGS="-I${BDB_PREFIX}/include"
+      - run: make -j 4
+      - run: make check -j 4
+  ubuntu-focal-gcc:
+    docker:
+      - image: docker.io/ionaryu/ubuntubuilder-focal
     steps:
       - checkout
       - run: ./contrib/install_db4.sh `pwd`
@@ -27,3 +37,4 @@ workflows:
     jobs:
       - ubuntu-xenial-gcc
       - ubuntu-bionic-gcc
+      - ubuntu-focal-gcc
