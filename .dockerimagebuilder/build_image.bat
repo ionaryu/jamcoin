@@ -1,4 +1,3 @@
-#!/bin/sh
 docker build --file Dockerfile-ubuntu --build-arg VARIANT="xenial" -t ionaryu/ubuntubuilder-xenial .
 docker push ionaryu/ubuntubuilder-xenial
 docker build --file Dockerfile-ubuntu --build-arg VARIANT="bionic" -t ionaryu/ubuntubuilder-bionic .

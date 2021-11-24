@@ -1,2 +1,3 @@
 build_image.sh
+build_image.bat
 Dockerfile-ubuntu
