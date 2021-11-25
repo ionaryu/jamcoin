@@ -20,12 +20,12 @@ static const std::string strSecret1 = "6uGFQ4DSW7zh1viHZi6iiVT17CncvoaV4MHvGvJKP
 static const std::string strSecret2 = "6vVo7sPkeLTwVdAntrv4Gbnsyr75H8ChD3P5iyHziwaqe8mCYR5";
 static const std::string strSecret1C = "T3gJYmBuZXsdd65E7NQF88ZmUP2MaUanqnZg9GFS94W7kND4Ebjq";
 static const std::string strSecret2C = "T986ZKRRdnuuXLeDZuKBRrZW1ujotAncU9WTrFU1n7vMgRW75ZtF";
-static const std::string addr1 = "LiUo6Zn39joYJBzPUhssbDwAywhjFcoHE3";
-static const std::string addr2 = "LZJvLSP5SGKcFS13MHgdrVhpFUbEMB5XVC";
-static const std::string addr1C = "Lh2G82Bi33RNuzz4UfSMZbh54jnWHVnmw8";
-static const std::string addr2C = "LWegHWHB5rmaF5rgWYt1YN3StapRdnGJfU";
+static const std::string addr1 = "JhnnB2HbbqVAD2HxMcDHAbaEqRR1efXzhD";
+static const std::string addr2 = "JYcuQttdtN1EAGJcEC23RsLt6xJWmbUhZD";
+static const std::string addr1C = "JgLFCUhGV96zpqHdMZmm8yL8vDVnjSqrvs";
+static const std::string addr2C = "JVxfMxnjXxTC9vAFPTDR7jgWk4Xi3BE54w";
 
-static const std::string strAddressBad = "Lbi6bpMhSwp2CXkivEeUK9wzyQEFzHDfSr";
+static const std::string strAddressBad = "Jbi6bpMhSwp2CXkivEeUK9wzyQEFzHDfSr";
 
 
 BOOST_FIXTURE_TEST_SUITE(key_tests, BasicTestingSetup)
@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(key_test1)
     BOOST_CHECK(!key2C.VerifyPubKey(pubkey1C));
     BOOST_CHECK(!key2C.VerifyPubKey(pubkey2));
     BOOST_CHECK(key2C.VerifyPubKey(pubkey2C));
-
+         
     BOOST_CHECK(DecodeDestination(addr1)  == CTxDestination(pubkey1.GetID()));
     BOOST_CHECK(DecodeDestination(addr2)  == CTxDestination(pubkey2.GetID()));
     BOOST_CHECK(DecodeDestination(addr1C) == CTxDestination(pubkey1C.GetID()));
