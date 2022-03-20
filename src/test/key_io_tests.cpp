@@ -15,7 +15,83 @@
 
 #include <univalue.h>
 
+#include <base58.h>
+#include <bech32.h>
+#include <boost/format.hpp>
+
 extern UniValue read_json(const std::string& jsondata);
+
+CTxDestination DecodeDestinationLocal(const std::string& str, const CChainParams& params)
+{
+    std::vector<unsigned char> data;
+    uint160 hash;
+    if (DecodeBase58Check(str, data)) {
+        BOOST_TEST_MESSAGE("DecodeBase58Check:true");
+        // base58-encoded Bitcoin addresses.
+        // Public-key-hash-addresses have version 0 (or 111 testnet).
+        // The data vector contains RIPEMD160(SHA256(pubkey)), where pubkey is the serialized public key.
+        const std::vector<unsigned char>& pubkey_prefix = params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
+        if (data.size() == hash.size() + pubkey_prefix.size() && std::equal(pubkey_prefix.begin(), pubkey_prefix.end(), data.begin())) {
+            std::copy(data.begin() + pubkey_prefix.size(), data.end(), hash.begin());
+            return CKeyID(hash);
+        }
+        // Script-hash-addresses have version 5 for 3 prefix (or 196 testnet).
+        // The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
+        const std::vector<unsigned char>& script_prefix = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+        if (data.size() == hash.size() + script_prefix.size() && std::equal(script_prefix.begin(), script_prefix.end(), data.begin())) {
+            std::copy(data.begin() + script_prefix.size(), data.end(), hash.begin());
+            return CScriptID(hash);
+        }
+        // Script-hash-addresses have version 5 for M prefix (or 196 testnet).
+        // The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
+        const std::vector<unsigned char>& script_prefix2 = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS2);
+        if (data.size() == hash.size() + script_prefix2.size() && std::equal(script_prefix2.begin(), script_prefix2.end(), data.begin())) {
+            std::copy(data.begin() + script_prefix2.size(), data.end(), hash.begin());
+            return CScriptID(hash);
+        }        
+    }
+    data.clear();
+    auto bech = bech32::Decode(str);
+    if (bech.second.size() > 0 && bech.first == params.Bech32HRP()) {
+        // Bech32 decoding
+        int version = bech.second[0]; // The first 5 bit symbol is the witness version (0-16)
+        // The rest of the symbols are converted witness program bytes.
+        data.reserve(((bech.second.size() - 1) * 5) / 8);
+        if (ConvertBits<5, 8, false>([&](unsigned char c) { data.push_back(c); }, bech.second.begin() + 1, bech.second.end())) {
+            if (version == 0) {
+                {
+                    WitnessV0KeyHash keyid;
+                    if (data.size() == keyid.size()) {
+                        std::copy(data.begin(), data.end(), keyid.begin());
+                        return keyid;
+                    }
+                }
+                {
+                    WitnessV0ScriptHash scriptid;
+                    if (data.size() == scriptid.size()) {
+                        std::copy(data.begin(), data.end(), scriptid.begin());
+                        return scriptid;
+                    }
+                }
+                return CNoDestination();
+            }
+            if (version > 16 || data.size() < 2 || data.size() > 40) {
+                return CNoDestination();
+            }
+            WitnessUnknown unk;
+            unk.version = version;
+            std::copy(data.begin(), data.end(), unk.program);
+            unk.length = data.size();
+            return unk;
+        }
+    }
+    return CNoDestination();
+}
+
+CTxDestination DecodeDestinationLocal(const std::string& str)
+{
+    return DecodeDestinationLocal(str, Params());
+}
 
 BOOST_FIXTURE_TEST_SUITE(key_io_tests, BasicTestingSetup)
 
@@ -40,6 +116,29 @@ BOOST_AUTO_TEST_CASE(key_io_valid_parse)
         bool isPrivkey = find_value(metadata, "isPrivkey").get_bool();
         SelectParams(find_value(metadata, "chain").get_str());
         bool try_case_flip = find_value(metadata, "tryCaseFlip").isNull() ? false : find_value(metadata, "tryCaseFlip").get_bool();
+
+        if(false)
+        {
+            auto tmp_strings = std::vector<std::string>( {"JSRVBQi4mFaBQpHEvd45ZfTCmxPdnY6jjo", "LMnn592npBwmeLtTfKc9RoZUqAe2rDgvKX" });
+            for(auto iter : tmp_strings) {
+                auto tmp_string = iter;
+                auto tmpdata = bech32::Decode(tmp_string);
+                BOOST_TEST_MESSAGE(boost::io::str(boost::format("decoded: %1%, %2%") % tmpdata.first % HexStr(tmpdata.second)));
+                std::vector<unsigned char> data;
+                if (DecodeBase58Check(tmp_string, data)) {
+                    BOOST_TEST_MESSAGE(HexStr(data));
+                    switch(data[0]) {
+                        case 48:
+                        data[0] = 43;
+                        BOOST_TEST_MESSAGE(tmp_string);
+                        BOOST_TEST_MESSAGE(EncodeBase58Check(data));
+                        BOOST_CHECK_EQUAL(true, false);
+                        break;
+                    }
+                }
+            }
+        }
+
         if (isPrivkey) {
             bool isCompressed = find_value(metadata, "isCompressed").get_bool();
             // Must be valid private key
@@ -53,7 +152,7 @@ BOOST_AUTO_TEST_CASE(key_io_valid_parse)
             BOOST_CHECK_MESSAGE(!IsValidDestination(destination), "IsValid privkey as pubkey:" + strTest);
         } else {
             // Must be valid public key
-            destination = DecodeDestination(exp_base58string);
+            destination = DecodeDestinationLocal(exp_base58string);
             CScript script = GetScriptForDestination(destination);
             BOOST_CHECK_MESSAGE(IsValidDestination(destination), "!IsValid:" + strTest);
             BOOST_CHECK_EQUAL(HexStr(script), HexStr(exp_payload));

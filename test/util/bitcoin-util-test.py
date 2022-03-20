@@ -117,6 +117,7 @@ def bctest(testDir, testObj, buildenv):
         try:
             a_parsed = parse_output(outs[0], outputType)
         except Exception as e:
+            logging.error(execrun)
             logging.error('Error parsing command output as %s: %s' % (outputType, e))
             raise
         try:
@@ -130,6 +131,7 @@ def bctest(testDir, testObj, buildenv):
             data_mismatch = True
         # Compare formatting
         if outs[0] != outputData:
+            logging.error(execrun)
             error_message = "Output formatting mismatch for " + outputFn + ":\n"
             error_message += "".join(difflib.context_diff(outputData.splitlines(True),
                                                           outs[0].splitlines(True),

@@ -51,7 +51,7 @@ static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesi
  */
 static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
-    const char* pszTimestamp = "NY Times 05/Oct/2011 Steve Jobs, Apple’s Visionary, Dies at 56";
+    const char* pszTimestamp = "NY Times 25/Dec/2021 How to Watch the James Webb Space Telescope Launch";
     const CScript genesisOutputScript = CScript() << ParseHex("040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9") << OP_CHECKSIG;
     return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
 }
@@ -128,9 +128,11 @@ public:
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,43);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
         base58Prefixes[SCRIPT_ADDRESS2] = std::vector<unsigned char>(1,50);
-        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,176);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,182);
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
+        // base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB6, 0x1E};
+        // base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAE, 0xE4};
 
         bech32_hrp = "jmc";
 
